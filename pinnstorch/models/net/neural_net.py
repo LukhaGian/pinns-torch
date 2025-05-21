@@ -4,6 +4,10 @@ import numpy as np
 import torch
 from torch import nn
 
+class Sin(nn.Module):
+    def forward(self, input):
+        return torch.sin(input)
+
 
 class FCN(nn.Module):
     """A simple fully-connected neural net for solving equations.
@@ -43,13 +47,13 @@ class FCN(nn.Module):
         initializer(input_layer.weight)
 
         net.add_module("input", input_layer)
-        net.add_module("activation_1", nn.Tanh())
+        net.add_module("activation_1", Sin())
 
         for i in range(1, len(layers) - 2):
             hidden_layer = nn.Linear(layers[i], layers[i + 1])
             initializer(hidden_layer.weight)
             net.add_module(f"hidden_{i+1}", hidden_layer)
-            net.add_module(f"activation_{i+1}", nn.Tanh())
+            net.add_module(f"activation_{i+1}", Sin())
 
         output_layer = nn.Linear(layers[-2], layers[-1])
         initializer(output_layer.weight)
