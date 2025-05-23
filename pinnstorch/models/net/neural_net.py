@@ -5,34 +5,11 @@ import torch
 from torch import nn
 
 class Sin(nn.Module):
+    """
+    Sine activation function, used in SIREN framework
+    """
     def forward(self, input):
         return torch.sin(input)
-    
-
-class SinCosTransform(nn.Module):
-    def __init__(self):
-        super().__init__()
-        # No parameters to initialize since this is a fixed transform
-
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """
-        Apply the transformation (sin(alpha*x), cos(alpha*x), t) to inputs.
-
-        Args:
-            x: Tensor of shape (batch_size, features)
-            t: Tensor of shape (batch_size, features) or (batch_size, 1)
-
-        Returns:
-            Transformed tensor concatenated along feature dimension.
-        """
-        alpha = 3
-        sin_alpha_x = torch.sin(alpha * x)
-        cos_alpha_x = torch.cos(alpha * x)
-        # Concatenate along feature dimension (dim=1)
-        transformed = torch.cat([sin_alpha_x, cos_alpha_x, t], dim=1)
-
-        return transformed
-
 
 
 class FCN(nn.Module):
@@ -42,25 +19,25 @@ class FCN(nn.Module):
     """
     output_names: List[str]
     
-    def __init__(self, layers, lb, ub, output_names, discrete: bool = False) -> None:
+    def __init__(self, layers, lb, ub, output_names, act_function: str = "sin", discrete: bool = False) -> None:
         """Initialize a `FCN` module.
 
         :param layers: The list indicating number of neurons in each layer.
         :param lb: Lower bound for the inputs.
         :param ub: Upper bound for the inputs.
         :param output_names: Names of outputs of net.
+        :param act_function: Activation function to use in the FCN layers
         :param discrete: If the problem is discrete or not.
         """
         super().__init__()
 
-        self.transform = SinCosTransform()
-        self.model = self.initalize_net(layers)
+        self.model = self.initalize_net(layers, act_function)
         self.register_buffer("lb", torch.tensor(lb, dtype=torch.float32, requires_grad=False))
         self.register_buffer("ub", torch.tensor(ub, dtype=torch.float32, requires_grad=False))
         self.output_names = output_names
         self.discrete = discrete
 
-    def initalize_net(self, layers: List):
+    def initalize_net(self, layers: List, act_function: str):
         """Initialize the layers of the neural network.
 
         :param layers: The list indicating number of neurons in each layer.
@@ -70,17 +47,25 @@ class FCN(nn.Module):
         initializer = nn.init.xavier_uniform_
         net = nn.Sequential()
 
-        input_layer = nn.Linear(layers[0] + 1, layers[1]) ### increase size of layers[0] (after transformation)
+        input_layer = nn.Linear(layers[0], layers[1])
         initializer(input_layer.weight)
 
         net.add_module("input", input_layer)
-        net.add_module("activation_1", Sin())
+        if act_function == "sin":
+            net.add_module("activation_1", Sin())
+        else:
+            net.add_module("activation_1", nn.Tanh())
+
 
         for i in range(1, len(layers) - 2):
             hidden_layer = nn.Linear(layers[i], layers[i + 1])
             initializer(hidden_layer.weight)
             net.add_module(f"hidden_{i+1}", hidden_layer)
-            net.add_module(f"activation_{i+1}", Sin())
+            if act_function == "sin":
+                net.add_module(f"activation_{i+1}", Sin())
+            else:
+                net.add_module(f"activation_{i+1}", nn.Tanh())
+
 
         output_layer = nn.Linear(layers[-2], layers[-1])
         initializer(output_layer.weight)
@@ -105,20 +90,20 @@ class FCN(nn.Module):
                 z = torch.cat((x, y, z), 1)
             else:
                 z = spatial[0]
-            #z = 2.0 * (z - self.lb[:-1]) / (self.ub[:-1] - self.lb[:-1]) - 1.0
+            z = 2.0 * (z - self.lb[:-1]) / (self.ub[:-1] - self.lb[:-1]) - 1.0
 
         # Continuous Mode
         else:
             if len(spatial) == 1:
                 x = spatial[0]
-                z = self.transform(x, time) ############### get the sin cos transformation
+                z = torch.cat((x, time), 1)
             elif len(spatial) == 2:
                 x, y = spatial
                 z = torch.cat((x, y, time), 1)
             else:
                 x, y, z = spatial
                 z = torch.cat((x, y, z, time), 1)
-            #z = 2.0 * (z - self.lb) / (self.ub - self.lb) - 1.0
+            z = 2.0 * (z - self.lb) / (self.ub - self.lb) - 1.0
 
         z = self.model(z)
 
