@@ -57,13 +57,14 @@ class FCN(nn.Module):
         """
 
         initializer = nn.init.xavier_uniform_ # default initialization according to Xavier uniform distribution
-        if w0 is not None:
-            initializer = nn.init.uniform_(a = -1 / layers[0], b = 1 / layers[0]) # initialization of first weights according to SIREN
-
+        
         net = nn.Sequential()
 
         input_layer = nn.Linear(layers[0], layers[1])
-        initializer(input_layer.weight)
+        if w0 is None:
+            initializer(input_layer.weight)
+        else:
+            initializer = nn.init.uniform_(input_layer.weight, a = -1 / layers[0], b = 1 / layers[0]) # initialization of first weights according to SIREN   
 
         net.add_module("input", input_layer)
         if act_function == "sin":
@@ -74,9 +75,10 @@ class FCN(nn.Module):
 
         for i in range(1, len(layers) - 2):
             hidden_layer = nn.Linear(layers[i], layers[i + 1])
-            if w0 is not None: # initialization of weights according to SIREN, i+1-th layer
-                initializer = nn.init.uniform_(a = -np.sqrt(6 / layers[i]) / w0, b = np.sqrt(6 / layers[i]) / w0)
-            initializer(hidden_layer.weight)
+            if w0 is None:
+                initializer(hidden_layer.weight)
+            else:    
+                initializer = nn.init.uniform_(hidden_layer.weight, a = -np.sqrt(6 / layers[i]) / w0, b = np.sqrt(6 / layers[i]) / w0) # initialization of weights according to SIREN, i+1-th layer
             net.add_module(f"hidden_{i+1}", hidden_layer)
             if act_function == "sin":
                 net.add_module(f"activation_{i+1}", Sin(w0))
@@ -85,9 +87,10 @@ class FCN(nn.Module):
 
 
         output_layer = nn.Linear(layers[-2], layers[-1])
-        if w0 is not None:
-            initializer = nn.init.uniform_(a = -np.sqrt(6 / layers[-2]) / w0, b = np.sqrt(6 / layers[-2]) / w0)
-        initializer(output_layer.weight)
+        if w0 is None:
+            initializer(output_layer.weight)
+        else:    
+            initializer = nn.init.uniform_(output_layer.weight, a = -np.sqrt(6 / layers[-2]) / w0, b = np.sqrt(6 / layers[-2]) / w0)
         net.add_module("output", output_layer)
         return net
 
