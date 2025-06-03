@@ -8,8 +8,17 @@ class Sin(nn.Module):
     """
     Sine activation function, used in SIREN framework
     """
+    def __init__(self, w0) -> None:
+        """Initialize a 'Sin' module."""
+
+        super().__init__()
+        self.w0 = w0 # omega_0 according to SIREN framework: If None, the forward function returns the standard sinusoidal activation function.
+
     def forward(self, input):
-        return torch.sin(input)
+        if self.w0 is not None:
+            return torch.sin(self.w0 * input)
+        else:
+            return torch.sin(input)
 
 
 class FCN(nn.Module):
@@ -19,7 +28,7 @@ class FCN(nn.Module):
     """
     output_names: List[str]
     
-    def __init__(self, layers, lb, ub, output_names, act_function: str = "sin", discrete: bool = False) -> None:
+    def __init__(self, layers, lb, ub, output_names, act_function: str = "sin", w0 = 30, discrete: bool = False) -> None:
         """Initialize a `FCN` module.
 
         :param layers: The list indicating number of neurons in each layer.
@@ -27,24 +36,30 @@ class FCN(nn.Module):
         :param ub: Upper bound for the inputs.
         :param output_names: Names of outputs of net.
         :param act_function: Activation function to use in the FCN layers
+        :param w0: SIREN weight initialization (BKM, w0 = 30), to be set to None if the user doesn't want to use the SIREN weight initialization
         :param discrete: If the problem is discrete or not.
         """
         super().__init__()
 
-        self.model = self.initalize_net(layers, act_function)
+        self.model = self.initalize_net(layers, act_function, w0)
         self.register_buffer("lb", torch.tensor(lb, dtype=torch.float32, requires_grad=False))
         self.register_buffer("ub", torch.tensor(ub, dtype=torch.float32, requires_grad=False))
         self.output_names = output_names
         self.discrete = discrete
 
-    def initalize_net(self, layers: List, act_function: str):
+    def initalize_net(self, layers: List, act_function: str, w0):
         """Initialize the layers of the neural network.
 
         :param layers: The list indicating number of neurons in each layer.
+        :param act_function: The activation function to use
+        :param siren_w0: SIREN weight initialization
         :return: The initialized neural network.
         """
 
-        initializer = nn.init.xavier_uniform_
+        initializer = nn.init.xavier_uniform_ # default initialization according to Xavier uniform distribution
+        if w0 is not None:
+            initializer = nn.init.uniform_(a = -1 / layers[0], b = 1 / layers[0]) # initialization of first weights according to SIREN
+
         net = nn.Sequential()
 
         input_layer = nn.Linear(layers[0], layers[1])
@@ -52,22 +67,26 @@ class FCN(nn.Module):
 
         net.add_module("input", input_layer)
         if act_function == "sin":
-            net.add_module("activation_1", Sin())
+            net.add_module("activation_1", Sin(w0))
         else:
             net.add_module("activation_1", nn.Tanh())
 
 
         for i in range(1, len(layers) - 2):
             hidden_layer = nn.Linear(layers[i], layers[i + 1])
+            if w0 is not None: # initialization of weights according to SIREN, i+1-th layer
+                initializer = nn.init.uniform_(a = -np.sqrt(6 / layers[i]) / w0, b = np.sqrt(6 / layers[i]) / w0)
             initializer(hidden_layer.weight)
             net.add_module(f"hidden_{i+1}", hidden_layer)
             if act_function == "sin":
-                net.add_module(f"activation_{i+1}", Sin())
+                net.add_module(f"activation_{i+1}", Sin(w0))
             else:
                 net.add_module(f"activation_{i+1}", nn.Tanh())
 
 
         output_layer = nn.Linear(layers[-2], layers[-1])
+        if w0 is not None:
+            initializer = nn.init.uniform_(a = -np.sqrt(6 / layers[-2]) / w0, b = np.sqrt(6 / layers[-2]) / w0)
         initializer(output_layer.weight)
         net.add_module("output", output_layer)
         return net
