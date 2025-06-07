@@ -280,7 +280,7 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
             z1 = torch.cat((x, y, z, time), 1)
             z2 = torch.cat((x, y, z), 1)
         z1 = 2.0 * (z1 - self.lb) / (self.ub - self.lb) - 1.0 
-
+        z2 = 2.0 * (z2 - self.lb[0]) / (self.ub[0] - self.lb[0]) - 1.0
         z1 = self.model1(z1)
         z2 = torch.exp(self.model2(z2)) # enforcing positivity
         z = torch.cat((z1, z2), 1)
