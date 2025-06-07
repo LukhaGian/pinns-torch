@@ -8,17 +8,8 @@ class Sin(nn.Module):
     """
     Sine activation function, used in SIREN framework
     """
-    def __init__(self, w0) -> None:
-        """Initialize a 'Sin' module."""
-
-        super().__init__()
-        self.w0 = w0 # omega_0 according to SIREN framework: If None, the forward function returns the standard sinusoidal activation function.
-
     def forward(self, input):
-        if self.w0 is not None:
-            return torch.sin(self.w0 * input)
-        else:
-            return torch.sin(input)
+        return torch.sin(input)
 
 
 class FCN(nn.Module):
@@ -28,7 +19,7 @@ class FCN(nn.Module):
     """
     output_names: List[str]
     
-    def __init__(self, layers, lb, ub, output_names, act_function: str = "sin", w0 = 30, discrete: bool = False) -> None:
+    def __init__(self, layers, lb, ub, output_names, act_function: str = "sin", discrete: bool = False) -> None:
         """Initialize a `FCN` module.
 
         :param layers: The list indicating number of neurons in each layer.
@@ -36,64 +27,52 @@ class FCN(nn.Module):
         :param ub: Upper bound for the inputs.
         :param output_names: Names of outputs of net.
         :param act_function: Activation function to use in the FCN layers
-        :param w0: SIREN weight initialization (BKM, w0 = 30), to be set to None if the user doesn't want to use the SIREN weight initialization
         :param discrete: If the problem is discrete or not.
         """
         super().__init__()
 
-        self.model = self.initalize_net(layers, act_function, w0)
+        self.model = self.initalize_net(layers, act_function)
         self.register_buffer("lb", torch.tensor(lb, dtype=torch.float32, requires_grad=False))
         self.register_buffer("ub", torch.tensor(ub, dtype=torch.float32, requires_grad=False))
         self.output_names = output_names
         self.discrete = discrete
 
-    def initalize_net(self, layers: List, act_function: str, w0):
+    def initalize_net(self, layers: List, act_function: str):
         """Initialize the layers of the neural network.
 
         :param layers: The list indicating number of neurons in each layer.
-        :param act_function: The activation function to use
-        :param siren_w0: SIREN weight initialization
+        :param act_function: Activation function to use in the FCN layers
         :return: The initialized neural network.
         """
 
-        initializer = nn.init.xavier_uniform_ # default initialization according to Xavier uniform distribution
-        
+        initializer = nn.init.xavier_uniform_
         net = nn.Sequential()
 
         input_layer = nn.Linear(layers[0], layers[1])
-        if w0 is None:
-            initializer(input_layer.weight)
-        else:
-            initializer = nn.init.uniform_(input_layer.weight, a = -1 / layers[0], b = 1 / layers[0]) # initialization of first weights according to SIREN   
+        initializer(input_layer.weight)
 
         net.add_module("input", input_layer)
         if act_function == "sin":
-            net.add_module("activation_1", Sin(w0))
+            net.add_module("activation_1", Sin())
         else:
             net.add_module("activation_1", nn.Tanh())
 
 
         for i in range(1, len(layers) - 2):
             hidden_layer = nn.Linear(layers[i], layers[i + 1])
-            if w0 is None:
-                initializer(hidden_layer.weight)
-            else:    
-                initializer = nn.init.uniform_(hidden_layer.weight, a = -np.sqrt(6 / layers[i]) / w0, b = np.sqrt(6 / layers[i]) / w0) # initialization of weights according to SIREN, i+1-th layer
+            initializer(hidden_layer.weight)
             net.add_module(f"hidden_{i+1}", hidden_layer)
             if act_function == "sin":
-                net.add_module(f"activation_{i+1}", Sin(w0))
+                net.add_module(f"activation_{i+1}", Sin())
             else:
                 net.add_module(f"activation_{i+1}", nn.Tanh())
 
 
         output_layer = nn.Linear(layers[-2], layers[-1])
-        if w0 is None:
-            initializer(output_layer.weight)
-        else:    
-            initializer = nn.init.uniform_(output_layer.weight, a = -np.sqrt(6 / layers[-2]) / w0, b = np.sqrt(6 / layers[-2]) / w0)
+        initializer(output_layer.weight)
         net.add_module("output", output_layer)
         return net
-
+    
     def forward(self, spatial: List[torch.Tensor], time: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Perform a single forward pass through the network.
 
@@ -222,8 +201,94 @@ class NetHFM(nn.Module):
         outputs_dict = {name: H[:, i : i + 1] for i, name in enumerate(self.output_names)}
 
         return outputs_dict
+    
+
+
+class ParallelNet(nn.Module): # rho, j and epsilon Network
+
+    output_names: List[str]
+
+    def __init__(self, layers1, layers2, lb, ub, output_names, act_function: str = "sin") -> None:
+
+        super().__init__()
+
+
+        self.model1 = self.initialize_net(layers1, act_function)
+        self.model2 = self.initialize_net(layers2, act_function)
+        self.register_buffer("lb", torch.tensor(lb, dtype=torch.float32, requires_grad=False))
+        self.register_buffer("ub", torch.tensor(ub, dtype=torch.float32, requires_grad=False))
+        self.output_names = output_names
+
+    def initialize_net(self, layers: List, act_function: str):    
+        """Initialize the layers of the neural network.
+
+        :param layers: The list indicating number of neurons in each layer.
+        :return: The initialized neural network.
+        """
+
+        initializer = nn.init.xavier_uniform_
+        net = nn.Sequential()
+
+        input_layer = nn.Linear(layers[0], layers[1])
+        initializer(input_layer.weight)
+
+        net.add_module("input", input_layer)
+        if act_function == "sin":
+            net.add_module("activation_1", Sin())
+        else:
+            net.add_module("activation_1", nn.Tanh())
+        
+
+        for i in range(1, len(layers) - 2):
+            hidden_layer = nn.Linear(layers[i], layers[i + 1])
+            initializer(hidden_layer.weight)
+            net.add_module(f"hidden_{i+1}", hidden_layer)
+            if act_function == "sin":
+                net.add_module(f"activation_{i+1}", Sin())
+            else:
+                net.add_module(f"activation_{i+1}", nn.Tanh())
+
+
+        output_layer = nn.Linear(layers[-2], layers[-1])
+        initializer(output_layer.weight)
+        net.add_module("output", output_layer)
+        return net
+    
+
+    def forward(self, spatial: List[torch.Tensor], time: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Perform a single forward pass through the network.
+
+    :param spatial: List of input spatial tensors.
+    :param time: Input tensor representing time.
+    :return: A tensor of solutions.
+    """
+        if len(spatial) == 1:
+            x = spatial[0]
+            z1 = torch.cat((x, time), 1)
+            z2 = x
+        elif len(spatial) == 2:
+            x, y = spatial
+            z1 = torch.cat((x, y, time), 1)
+            z2 = torch.cat((x, y), 1)
+        else:
+            x, y, z = spatial
+            z1 = torch.cat((x, y, z, time), 1)
+            z2 = torch.cat((x, y), 1)
+        #z1 = 2.0 * (z1 - self.lb) / (self.ub - self.lb) - 1.0  
+        #z2 = 2.0 * (z2 - self.lb) / (self.ub - self.lb) - 1.0
+
+        z1 = self.model1(z1)
+        z2 = self.model2(z2)
+        z = torch.cat((z1, z2), 1)
+        outputs_dict = {name: z[:, i : i + 1] for i, name in enumerate(self.output_names)}
+        return outputs_dict
+
 
 
 if __name__ == "__main__":
-    _ = FCN()
-    _ = NetHFM()
+   # _ = FCN()
+   # _ = NetHFM()
+    test = ParallelNet([2, 2, 2, 2], [1, 3, 5, 1], -1, 1, ['rho', 'j', 'eps'])
+    print(test.model1)
+    print(test.model2)
+    print(test([torch.ones(1,1)], torch.ones(1,1)))
