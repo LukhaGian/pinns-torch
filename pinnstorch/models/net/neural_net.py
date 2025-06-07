@@ -208,13 +208,13 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
 
     output_names: List[str]
 
-    def __init__(self, layers1, layers2, lb, ub, output_names, act_function: str = "sin") -> None:
+    def __init__(self, layers1, layers2, lb, ub, output_names, act_function1: str = "sin", act_function2: str = "sin") -> None:
 
         super().__init__()
 
 
-        self.model1 = self.initialize_net(layers1, act_function)
-        self.model2 = self.initialize_net(layers2, act_function)
+        self.model1 = self.initialize_net(layers1, act_function1)
+        self.model2 = self.initialize_net(layers2, act_function2)
         self.register_buffer("lb", torch.tensor(lb, dtype=torch.float32, requires_grad=False))
         self.register_buffer("ub", torch.tensor(ub, dtype=torch.float32, requires_grad=False))
         self.output_names = output_names
@@ -223,6 +223,7 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
         """Initialize the layers of the neural network.
 
         :param layers: The list indicating number of neurons in each layer.
+        :act_function: Tha activation function to use
         :return: The initialized neural network.
         """
 
@@ -235,6 +236,8 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
         net.add_module("input", input_layer)
         if act_function == "sin":
             net.add_module("activation_1", Sin())
+        elif act_function == "sigmoid":
+            net.add_module("activation_1", nn.Sigmoid())
         else:
             net.add_module("activation_1", nn.Tanh())
         
@@ -245,6 +248,8 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
             net.add_module(f"hidden_{i+1}", hidden_layer)
             if act_function == "sin":
                 net.add_module(f"activation_{i+1}", Sin())
+            elif act_function == "sigmoid":
+                 net.add_module(f"activation_{i+1}", nn.Sigmoid()) 
             else:
                 net.add_module(f"activation_{i+1}", nn.Tanh())
 
@@ -275,7 +280,7 @@ class ParallelNet(nn.Module): # rho, j and epsilon Network
             z1 = torch.cat((x, y, z, time), 1)
             z2 = torch.cat((x, y, z), 1)
         z1 = 2.0 * (z1 - self.lb) / (self.ub - self.lb) - 1.0  
-        #z2 = 2.0 * (z2 - self.lb) / (self.ub - self.lb) - 1.0
+        z2 = 2.0 * (z2 - self.lb) / (self.ub - self.lb) - 1.0
 
         z1 = self.model1(z1)
         z2 = torch.exp(self.model2(z2)) # enforcing positivity
